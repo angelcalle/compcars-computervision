@@ -31,7 +31,7 @@ pip install -r requirements.txt
 Cada script genera su propia carpeta numerada para mantener el orden. Aquí está la estructura completa con todos los archivos generados:
 
 ```text
-ConferencIA2/
+CompCars-ComputerVision/
 ├── CompCars/                       # 📁 DATASET ORIGINAL (No tocar)
 │   ├── image/                      # Imágenes de coches
 │   └── misc/                       # Metadatos (nombres de marcas, etc.)
@@ -84,6 +84,8 @@ ConferencIA2/
 │   └── *.jpg, *.png, etc.          # Fotos de coches para predecir
 │
 └── Scripts principales:
+    ├── README.md                   # Documentación principal del proyecto
+    ├── requirements.txt            # Lista de dependencias necesarias
     ├── 01_prepare_splits.py        # Preparar datos train/test
     ├── 02_eda_main.py              # Análisis exploratorio de datos
     ├── 03_fit_forest.py            # Entrenar Random Forest
