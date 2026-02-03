@@ -35,11 +35,29 @@ from torchvision.models import mobilenet_v3_large, MobileNet_V3_Large_Weights
 from sklearn.metrics import accuracy_score, classification_report
 
 # Importar función para obtener nombres de marcas
-try:
-    from generate_labels import get_make_labels
-except ImportError:
-    # Fallback si no existe
-    def get_make_labels(d): return {}
+def load_make_map_from_mat(compcars_root):
+    """
+    Carga nombres reales de las marcas desde el archivo .mat original de CompCars.
+    Requiere scipy.
+    """
+    try:
+        from scipy.io import loadmat
+    except ImportError:
+        return {}
+
+    path_mat = os.path.join(compcars_root, "misc", "make_model_name.mat")
+    if not os.path.isfile(path_mat):
+        return {}
+
+    try:
+        data = loadmat(path_mat)
+        if "make_names" in data:
+            names = data["make_names"].squeeze()
+            return {str(i+1): str(n[0]) if n.size > 0 else f"Make-{i+1}" for i, n in enumerate(names)}
+    except Exception:
+        pass
+
+    return {}
 
 # ==============================================================================
 # FUNCIONES DE CARGA Y PREPROCESADO
@@ -109,7 +127,7 @@ class CompCarsDataset(Dataset):
         # 2. Cargar imagen
         img_path = os.path.join(self.image_root, *rel.split("/"))
 
-        # Ojo: PyTorch espera PIL Images para las transformaciones
+        # Ojo: PyTorch espera PIL (img es objeto PIL) Images para las transformaciones
         try:
             img = Image.open(img_path).convert("RGB")
         except:
@@ -176,114 +194,65 @@ def load_and_prepare_data(splits_dir, max_makes=0, per_make=0, seed=42):
 
 def create_dataloaders(compcars_dir, train_rels, test_rels, label_to_idx, batch_size=32):
     """Crea los DataLoaders de PyTorch con las transformaciones adecuadas"""
-    # Selección automática de GPU
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"--> Usando dispositivo: {device.upper()}")
-
-    # MobileNetV3 espera cierta normalización (Media y Desviación estándar de ImageNet)
-    weights = MobileNet_V3_Large_Weights.DEFAULT
-    mean = weights.transforms().mean
-    std = weights.transforms().std
-
-    train_tf = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.RandomResizedCrop(224, scale=(0.8, 1.0)), # Data Augmentation: Zoom aleatorio
-        transforms.RandomHorizontalFlip(),                    # Data Augmentation: Espejo
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std),
-    ])
-
-    test_tf = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std),
-    ])
-
-    # DataLoaders
-    train_ds = CompCarsDataset(compcars_dir, train_rels, label_to_idx, transform=train_tf)
-    test_ds = CompCarsDataset(compcars_dir, test_rels, label_to_idx, transform=test_tf)
-
-    # Configurar pin_memory según disponibilidad de CUDA para evitar warnings
-    use_pin_memory = torch.cuda.is_available()
-
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=2, pin_memory=use_pin_memory)
-    test_loader  = DataLoader(test_ds,  batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=use_pin_memory)
-
-    return train_loader, test_loader, device
+    # -------------------------------------------------------------------------
+    # TODO: Crear DataLoaders (Pipeline de Datos)
+    #
+    # TAREA: Configurar cómo se cargan y transforman las imágenes.
+    # 1. Detecta si hay GPU ("cuda") o usa "cpu".
+    # 2. Define las transformaciones (transforms.Compose):
+    #    - Resize a 224x224 (estándar para MobileNet/ResNet).
+    #    - Aumentación de datos en Train (Flip, Crop...).
+    #    - Convertir a Tensor y Normalizar (con medias/std de ImageNet).
+    # 3. Instancia el dataset CompCarsDataset para train y test.
+    # 4. Crea los DataLoader:
+    #    - Train: con shuffle=True (barajar siempre).
+    #    - Test: con shuffle=False.
+    #
+    # RETORNO ESPERADO:
+    #   return train_loader, test_loader, device
+    # -------------------------------------------------------------------------
 
 def build_model(num_classes, freeze_backbone=False, lr=3e-4, device="cpu"):
     """Descarga y configura el modelo MobileNetV3"""
-    print("--> Descargando/Cargando MobileNetV3 Preentrenada...")
-    weights = MobileNet_V3_Large_Weights.DEFAULT
-    model = mobilenet_v3_large(weights=weights)
+    # -------------------------------------------------------------------------
+    # TODO: Construir el Modelo (Transfer Learning)
+    #
+    # TAREA: Cargar una red pre-entrenada y adaptarla a nuestras clases.
+    # 1. Carga MobileNetV3 (o ResNet) con pesos "DEFAULT" (ImageNet).
+    # 2. Modifica la última capa ("head" o "classifier") para tener
+    #    tantas neuronas de salida como clases tengamos (num_classes).
+    # 3. (Opcional) Si freeze_backbone es True, congela los pesos del extractor
+    #    de características para entrenar solo la nueva capa final.
+    # 4. Mueve el modelo a la GPU (device).
+    # 5. Configura el Optimizador (AdamW) y la Función de Pérdida (CrossEntropy).
+    #
+    # RETORNO ESPERADO:
+    #   return model, optimizer, criterion
+    # -------------------------------------------------------------------------
 
-    # Reemplazar la última capa ("cabeza") para que coincida con nuestro número de clases
-    # (Originalmente ImageNet tiene 1000 clases, nosotros tenemos N)
-    num_ft = model.classifier[3].in_features
-    model.classifier[3] = nn.Linear(num_ft, num_classes)
-
-    # Congelar backbone si se pide
-    if freeze_backbone:
-        print("--> CONGELANDO Backbone (Solo se entrena la capa final).")
-        for param in model.features.parameters():
-            param.requires_grad = False
-
-    model = model.to(device)
-
-    # Optimizador y Loss
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr) # AdamW es el estándar moderno
-    criterion = nn.CrossEntropyLoss()
-
-    return model, optimizer, criterion
 
 def train_loop(model, train_loader, test_loader, optimizer, criterion, epochs, device, outdir):
     """Ejecuta el bucle de entrenamiento y guarda el mejor modelo"""
-    os.makedirs(outdir, exist_ok=True)
-    best_acc = 0.0
-
-    # Import local para evitar error si no está instalada (aunque aquí ya asumimos que sí)
-    try:
-        from tqdm import tqdm
-    except ImportError:
-        def tqdm(x, desc=""): return x
-
-    print(f"\nIniciando entrenamiento por {epochs} épocas...")
-
-    for epoch in range(1, epochs + 1):
-        model.train() # Modo entrenamiento
-        total_loss = 0
-        n_samples = 0
-
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}")
-        for xb, yb in pbar:
-            xb, yb = xb.to(device), yb.to(device)
-
-            optimizer.zero_grad()       # Reset gradientes
-            outputs = model(xb)         # Predicción
-            loss = criterion(outputs, yb) # Calcular error
-            loss.backward()             # Calcular gradientes (Backprop)
-            optimizer.step()            # Actualizar pesos
-
-            total_loss += loss.item() * xb.size(0)
-            n_samples += xb.size(0)
-            if hasattr(pbar, "set_postfix"):
-                pbar.set_postfix({"loss": f"{total_loss/n_samples:.4f}"})
-
-        avg_loss = total_loss / max(1, n_samples)
-
-        # Evaluación al final de la época
-        y_true, y_pred = evaluate(model, test_loader, device)
-        acc = accuracy_score(y_true, y_pred)
-
-        print(f"Epoch {epoch}/{epochs} | Loss: {avg_loss:.4f} | Test Acc: {acc:.2%}")
-
-        # Guardar el mejor modelo
-        if acc > best_acc:
-            best_acc = acc
-            torch.save(model.state_dict(), os.path.join(outdir, "cnn_best.pt"))
-
-    print(f"\nMejor Accuracy en Test: {best_acc:.2%}")
-    return best_acc
+    # -------------------------------------------------------------------------
+    # TODO: Bucle de Entrenamiento (Training Loop)
+    #
+    # TAREA: Iterar sobre las épocas y los batches para entrenar la red.
+    #
+    # BUCLE PRINCIPAL (por cada época):
+    #   1. Pon el modelo en modo train: model.train().
+    #   2. Itera sobre el train_loader:
+    #      - Mueve datos a GPU: xb.to(device), yb.to(device).
+    #      - Limpia gradientes: optimizer.zero_grad().
+    #      - Predice: outputs = model(xb).
+    #      - Calcula error: loss = criterion(outputs, yb).
+    #      - Backpropagation: loss.backward().
+    #      - Actualiza pesos: optimizer.step().
+    #   3. Al final de la época, evalúa en Test (model.eval).
+    #   4. Si la accuracy mejora, guarda el modelo como "mejor del momento".
+    #
+    # RETORNO ESPERADO:
+    #   return best_acc
+    # -------------------------------------------------------------------------
 
 def save_artifacts(outdir, model, best_acc, epochs, idx_to_label, compcars_dir):
     """Guarda modelo final, metadatos y mapeo de etiquetas"""
@@ -292,7 +261,7 @@ def save_artifacts(outdir, model, best_acc, epochs, idx_to_label, compcars_dir):
 
     # Guardar mapeo de etiquetas (imprescindible para predecir luego)
     # Convertir IDs de marca a nombres legibles
-    make_names = get_make_labels(compcars_dir)
+    make_names = load_make_map_from_mat(compcars_dir)
     idx_to_label_names = {str(i): make_names.get(c, c) for i, c in idx_to_label.items()}
 
     with open(os.path.join(outdir, "label_map.json"), "w", encoding='utf-8') as f:
@@ -319,25 +288,26 @@ def save_artifacts(outdir, model, best_acc, epochs, idx_to_label, compcars_dir):
 # ==============================================================================
 
 def main():
-    ap = argparse.ArgumentParser("Entrenamiento CNN MobileNetV3")
-    ap.add_argument("--compcars", required=True, help="Ruta de CompCars")
-    ap.add_argument("--splits-dir", default="./01_splits", help="Donde están los .txt")
-    ap.add_argument("--outdir", default="04_models_cnn", help="Carpeta de salida")
-
-    # Hiperparámetros
-    ap.add_argument("--epochs", type=int, default=5, help="Vueltas completas al dataset")
-    ap.add_argument("--batch-size", type=int, default=32, help="Imágenes procesadas a la vez")
-    ap.add_argument("--lr", type=float, default=3e-4, help="Learning Rate: velocidad de aprendizaje")
-
-    # Config Transfer Learning
-    ap.add_argument("--freeze-backbone", action="store_true", help="Congela el cerebro principal, entrena solo la salida")
-
-    # Datos Demo
-    ap.add_argument("--max-makes", type=int, default=0, help="Limitar clases (0=todas)")
-    ap.add_argument("--per-make", type=int, default=0, help="Limitar imagenes por clase")
-    ap.add_argument("--seed", type=int, default=42, help="Semilla aleatoria para reproducibilidad")
-
-    args = ap.parse_args()
+    # -------------------------------------------------------------------------
+    # TODO: Configurar Argumentos de Línea de Comandos
+    #
+    # TAREA: Definir parámetros para ejecutar el script desde terminal.
+    # 1. Rutas:
+    #    - --compcars (dataset raíz)
+    #    - --splits-dir (listas train/test)
+    #    - --outdir (dónde guardar el modelo, default "04_models_cnn")
+    #
+    # 2. Hiperparámetros de Deep Learning:
+    #    - --epochs (cuántas pasadas, ej: 5)
+    #    - --batch-size (imágenes por bloque, ej: 32)
+    #    - --lr (velocidad de aprendizaje, ej: 3e-4)
+    #
+    # 3. Opciones Avanzadas:
+    #    - --freeze-backbone (para no dañar los pesos preentrenados al inicio)
+    #    - Filtros de demo (--max-makes, --per-make)
+    # -------------------------------------------------------------------------
+    # ap = ...
+    # args = ap.parse_args()
 
     try:
         # 1. Cargar Datos
