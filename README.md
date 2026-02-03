@@ -84,19 +84,19 @@ CompCars-ComputerVision/
 │   └── *.jpg, *.png, etc.          # Fotos de coches para predecir
 │
 └── Scripts principales:
-    ├── README.md                   # Documentación principal del proyecto
-    ├── requirements.txt            # Lista de dependencias necesarias
-    ├── 01_prepare_splits.py        # Preparar datos train/test
-    ├── 02_eda_main.py              # Análisis exploratorio de datos
-    ├── 03_fit_forest.py            # Entrenar Random Forest
-    ├── 03_predict_forest.py        # Predecir con Random Forest
-    ├── 04_fit_cnn.py               # Entrenar CNN (MobileNetV3)
-    ├── 04_predict_cnn.py           # Predecir con CNN
-    ├── 05_fit_vit.py               # Entrenar Vision Transformer
-    ├── 05_predict_vit.py           # Predecir con ViT
-    ├── 06_analyze_metrics.py       # Comparar todos los modelos
-    ├── 07_live_demo.py             # Demo web interactiva (Streamlit)
-    └── 08_predict_local.py         # Predicción masiva (todos los modelos)
+    ├── ✅ README.md                   # Documentación principal del proyecto
+    ├── ✅ requirements.txt            # Lista de dependencias necesarias
+    ├── ✅ 01_prepare_splits.py        # Preparar datos train/test
+    ├── ✅ 02_eda_main.py              # Análisis exploratorio de datos
+    ├── ⌨️ 03_fit_forest.py            # Entrenar Random Forest
+    ├── ✅ 03_predict_forest.py        # Predecir con Random Forest
+    ├── ⌨️ 04_fit_cnn.py               # Entrenar CNN (MobileNetV3)
+    ├── ✅ 04_predict_cnn.py           # Predecir con CNN
+    ├── ⌨️ 05_fit_vit.py               # Entrenar Vision Transformer
+    ├── ✅ 05_predict_vit.py           # Predecir con ViT
+    ├── ✅ 06_analyze_metrics.py       # Comparar todos los modelos
+    ├── ✅ 07_live_demo.py             # Demo web interactiva (Streamlit)
+    └── ✅ 08_predict_local.py         # Predicción masiva (todos los modelos)
 ```
 
 ### 📌 Leyenda
