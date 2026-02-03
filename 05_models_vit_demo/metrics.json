@@ -1,0 +1,6 @@
+{
+  "model": "vit_b_16",
+  "best_test_accuracy": 0.221,
+  "device": "cpu",
+  "epochs": 3
+}

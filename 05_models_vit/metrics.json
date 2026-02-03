@@ -1,0 +1,5 @@
+{
+  "model": "vit_b_16",
+  "best_test_accuracy": 0.13891943405908658,
+  "device": "cpu"
+}
