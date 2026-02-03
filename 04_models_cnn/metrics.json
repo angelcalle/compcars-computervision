@@ -1,0 +1,5 @@
+{
+  "best_accuracy": 0.8952422842900081,
+  "epochs": 10,
+  "model": "mobilenet_v3_large"
+}

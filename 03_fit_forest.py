@@ -407,7 +407,7 @@ def main():
         # 7. Guardar artefactos
         save_model_artifacts(clf, le, args.compcars, args.outdir, acc_val, metrics_test)
 
-        print("\nPROCESO COMPLETADO EXITOSAMENTE.")
+        print("\n🎉 PROCESO COMPLETADO EXITOSAMENTE.")
 
     except Exception as e:
         print(f"\nError fatal: {e}")

@@ -1,0 +1,6 @@
+{
+  "best_accuracy": 0.202,
+  "epochs": 3,
+  "model": "mobilenet_v3_large",
+  "n_classes": 10
+}
