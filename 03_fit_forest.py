@@ -230,56 +230,49 @@ def encode_labels(y_train, y_val):
     Convierte etiquetas de texto a números.
     Filtra validación para eliminar clases no vistas en train.
     """
-    # -------------------------------------------------------------------------
-    # TODO: Codificar Etiquetas (Label Encoding)
-    #
-    # TAREA: Los modelos ML no entienden texto ("Audi"), solo números.
-    # 1. Instancia un sklearn.preprocessing.LabelEncoder
-    # 2. Usa .fit_transform() con las etiquetas de TRAIN (y_train).
-    # 3. IMPORTANTE: Filtra las clases desconocidas en VALIDACIÓN.
-    #    - Es posible que en validation haya marcas que no salieron en train.
-    #    - Crea una máscara booleana para mantener solo las que están en le.classes_.
-    # 4. Transforma y_val usando solo esas instancias válidas.
-    #
-    # RETORNO ESPERADO:
-    #   return le, y_train_enc, y_val_enc, mask_val, y_val_filtered
-    # -------------------------------------------------------------------------
+    le = LabelEncoder()
+    y_train_enc = le.fit_transform(y_train)
+
+    # Filtrar validación: solo clases conocidas
+    known = set(le.classes_)
+    mask_val = np.array([y in known for y in y_val])
+    y_val_filtered = y_val[mask_val]
+    y_val_enc = le.transform(y_val_filtered)
+
+    # Filtrar X_val también (necesitamos retornar la máscara o filtrar X_val fuera)
+    # Mejor retornamos la máscara para que el caller filtre X_val
+    return le, y_train_enc, y_val_enc, mask_val, y_val_filtered
 
 def train_model(X_train, y_train_enc, n_estimators=100, seed=42):
     """Entrena el modelo Random Forest"""
-    # -------------------------------------------------------------------------
-    # TODO: Entrenar el Modelo (Training)
-    #
-    # TAREA: Instanciar y entrenar el clasificador RandomForest.
-    # 1. Crea una instancia de RandomForestClassifier.
-    #    - Configura n_estimators con el argumento recibido.
-    #    - Usa random_state=seed para reproducibilidad.
-    #    - Usa n_jobs=-1 para que vaya rápido (usa todos los núcleos de CPU).
-    # 2. Llama al método .fit() pasándole:
-    #    - Los datos de entrenamiento (X_train).
-    #    - Las etiquetas codificadas (y_train_enc).
-    #
-    # RETORNO ESPERADO:
-    #   return clf  (el modelo ya entrenado)
-    # -------------------------------------------------------------------------
+    print(f"\nEntrenando RandomForest con {n_estimators} árboles...")
+    clf = RandomForestClassifier(
+        n_estimators=n_estimators,
+        n_jobs=-1,  # Usar todos los núcleos de la CPU
+        random_state=seed
+    )
+    clf.fit(X_train, y_train_enc)
+    print("Entrenamiento finalizado.")
+    return clf
 
 def evaluate_model(clf, X_val, y_val_enc, le, compcars_dir):
     """Evalúa el modelo en validación y muestra reporte"""
-    # -------------------------------------------------------------------------
-    # TODO: Evaluar el Modelo
-    #
-    # TAREA: Calcular métricas de rendimiento con los datos de validación.
-    # 1. Usa clf.predict() con los datos de validación (X_val).
-    # 2. Compara esas predicciones con las reales (y_val_enc) usando:
-    #    - accuracy_score() para el porcentaje global de aciertos.
-    # 3. (Opcional) Genera un reporte detallado con classification_report().
-    #    - TRUCO: Si hay muchas clases (>20), el reporte es ilegible.
-    #      Haz un 'if' para mostrarlo solo si len(le.classes_) < 20.
-    #    - Usa target_names para mostrar nombres como "Audi" en vez de "0".
-    #
-    # RETORNO ESPERADO:
-    #   No suele retornar nada crítico, pero imprime los resultados en pantalla.
-    # -------------------------------------------------------------------------
+    print("\nEvaluando en VALIDACIÓN:")
+    pred_val = clf.predict(X_val)
+    acc = accuracy_score(y_val_enc, pred_val)
+    print(f"   Accuracy: {acc:.2%}")
+
+    # Mapear nombres para reporte legible
+    make_map = load_make_map_from_mat(compcars_dir)
+    target_names = [f"{c} ({make_map.get(c, '?')})" for c in le.classes_]
+
+    # Reporte detallado solo si hay pocas clases
+    if len(le.classes_) < 20:
+        print(classification_report(y_val_enc, pred_val, target_names=target_names, zero_division=0))
+    else:
+        print("   (Reporte detallado omitido porque hay demasiadas clases)")
+
+    return acc
 
 def evaluate_test_set(clf, le, compcars_dir, splits_dir, max_makes=0, per_make=0, seed=42):
     """Evalúa el modelo en el conjunto de test (opcional)"""
@@ -360,21 +353,22 @@ def save_model_artifacts(clf, le, compcars_dir, outdir, acc_val, metrics_test=No
 # ==============================================================================
 
 def main():
-    # -------------------------------------------------------------------------
-    # TODO: Configurar Argumentos (argparse)
-    #
-    # TAREA: Define los argumentos necesarios para el script:
-    # 1. --compcars (obligatorio): Ruta al dataset
-    # 2. --splits-dir (default "01_splits"): Dónde están los .txt
-    # 3. --outdir (default "03_models_forest"): Dónde guardar resultados
-    # 4. Hiperparámetros del Random Forest (--n-estimators, --seed, etc.)
-    # 5. Límites para demo (--max-makes, --per-make)
-    #
-    # PISTA: Usa argparse.ArgumentParser()
-    # -------------------------------------------------------------------------
-    # ap = ...
-    # ...
-    # args = ap.parse_args()
+    ap = argparse.ArgumentParser("Entrenar Random Forest Básico")
+    ap.add_argument("--compcars", required=True, help="Ruta a CompCars")
+    ap.add_argument("--splits-dir", default="01_splits", help="Carpeta con train_all.txt")
+    ap.add_argument("--outdir", default="03_models_forest", help="Donde guardar el modelo")
+
+    # Configuración del entrenamiento
+    ap.add_argument("--val-ratio", type=float, default=0.2, help="20%% para validación interna")
+    ap.add_argument("--seed", type=int, default=42, help="Semilla aleatoria para reproducibilidad")
+    ap.add_argument("--n-estimators", type=int, default=100, help="Número de árboles (más = más lento pero mejor)")
+    ap.add_argument("--use-test", action="store_true", help="Si activado, evalúa también contra test_all.txt final")
+
+    # Filtros didácticos (hacerlo rápido con pocos datos)
+    ap.add_argument("--max-makes", type=int, default=0, help="0 = todas las marcas (avanzado)")
+    ap.add_argument("--per-make", type=int, default=0, help="0 = todas las imágenes por marca")
+
+    args = ap.parse_args()
 
     try:
         # 1. Cargar y dividir datos

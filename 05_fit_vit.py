@@ -175,45 +175,79 @@ def load_and_prepare_data(splits_dir, max_makes=0, per_make=0, seed=42):
 
 def create_dataloaders(compcars_dir, train_rels, test_rels, label_to_idx, img_size=224, batch_size=16):
     """Crea los DataLoaders de PyTorch con las transformaciones para ViT"""
-    # -------------------------------------------------------------------------
-    # TODO: Crear DataLoaders (Pipeline ViT)
-    #
-    # TAREA: Preparar los datos específicamente para un Transformer.
-    # 1. Configuración Hardware: GPU vs CPU.
-    # 2. Transformaciones (CRÍTICO para ViT):
-    #    - Los Transformers necesitan imágenes de tamaño fijo, suele ser 224x224.
-    #    - Es muy recomendable usar ColorJitter (alterar brillo/contraste) para
-    #      que el modelo no memorice colores exactos.
-    #    - Normalización exacta de ImageNet.
-    # 3. Datasets y DataLoaders:
-    #    - Igual que en CNN, pero ojo con el batch_size: ViT consume mucha VRAM.
-    #      Si tienes poca memoria GPU, usa un batch_size pequeño (16 u 8).
-    #
-    # RETORNO ESPERADO:
-    #   return train_loader, test_loader, device
-    # -------------------------------------------------------------------------
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"--> Dispositivo: {device}")
+
+    # Transformaciones (Preprocesado específico de ViT)
+    weights = ViT_B_16_Weights.DEFAULT
+    mean = weights.transforms().mean
+    std = weights.transforms().std
+
+    train_tf = transforms.Compose([
+        transforms.Resize((img_size, img_size)),
+        transforms.RandomResizedCrop(img_size, scale=(0.8, 1.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(0.2, 0.2, 0.2), # Jitter ayuda a que no memorice colores exactos
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std),
+    ])
+
+    test_tf = transforms.Compose([
+        transforms.Resize((img_size, img_size)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=std),
+    ])
+
+    train_ds = CompCarsDataset(compcars_dir, train_rels, label_to_idx, transform=train_tf)
+    test_ds = CompCarsDataset(compcars_dir, test_rels, label_to_idx, transform=test_tf)
+
+    # Configurar pin_memory según disponibilidad de CUDA para evitar warnings
+    use_pin_memory = torch.cuda.is_available()
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=2, pin_memory=use_pin_memory)
+    test_loader  = DataLoader(test_ds,  batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=use_pin_memory)
+
+    return train_loader, test_loader, device
 
 def build_model(num_classes, freeze_backbone=False, unfreeze_last_n_enc=0, lr=2e-4, device="cpu"):
     """Descarga y configura el modelo ViT"""
-    # -------------------------------------------------------------------------
-    # TODO: Construir Vision Transformer (Transfer Learning)
-    #
-    # TAREA: Adaptar un ViT preentrenado.
-    # 1. Cargar 'vit_b_16' (Base, parches 16x16) con pesos DEFAULT.
-    # 2. Modificar la "cabeza" (Heads):
-    #    - En torchvision, la capa final suele llamarse `heads.head`.
-    #    - Reemplázala por una Linear(in_features, num_classes).
-    # 3. Estrategia de Congelado (Fine-Tuning):
-    #    - Si freeze_backbone=True: congela todo (model.parameters().requires_grad = False).
-    #    - ¡IMPORTANTE! Vuelve a activar el gradiente SOLO de la nueva cabeza.
-    #    - (Opcional) Descongelar los últimos bloque del encoder (unfreeze_last_n).
-    # 4. Optimizador:
-    #    - ViT funciona mejor con AdamW y un 'weight_decay' (0.01) para regularizar.
-    #
-    # RETORNO ESPERADO:
-    #   return model, optimizer, criterion
-    # -------------------------------------------------------------------------
+    print("--> Cargando ViT-B/16 (Preentrenado)...")
+    weights = ViT_B_16_Weights.DEFAULT
+    model = vit_b_16(weights=weights)
 
+    # Adaptar cabeza (Classifier Head)
+    # En ViT, la 'cabeza' está en model.heads.head
+    in_features = model.heads.head.in_features
+    model.heads.head = nn.Linear(in_features, num_classes)
+
+    # Congelado selectivo (Fine-Tuning tactics)
+    if freeze_backbone:
+        print("--> Modo Congelado Activado")
+        # Congelamos TODO primero
+        for p in model.parameters():
+            p.requires_grad = False
+
+        # Descongelamos solo la cabeza nueva
+        for p in model.heads.head.parameters():
+            p.requires_grad = True
+
+        # Opcional: Descongelar capas finales del encoder (Hybrid approach)
+        if unfreeze_last_n_enc > 0:
+            print(f"    Descongelando últimas {unfreeze_last_n_enc} capas del encoder.")
+            # model.encoder.layers es una lista de bloques transformer
+            blocks = list(model.encoder.layers)
+            for blk in blocks[-unfreeze_last_n_enc:]:
+                for p in blk.parameters():
+                    p.requires_grad = True
+
+    model = model.to(device)
+
+    # Optimizador y Loss
+    # Weight Decay ayuda a evitar overfitting (regularización L2)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+    criterion = nn.CrossEntropyLoss()
+
+    return model, optimizer, criterion
 
 def train_loop(model, train_loader, test_loader, optimizer, criterion, epochs, device, outdir):
     """Ejecuta el bucle de entrenamiento y guarda el mejor modelo"""
